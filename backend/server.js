@@ -29,10 +29,9 @@ mongoose
 // signin/signup/landingPage
 app.use("/api/v1/signup", signupRouter);
 app.use("/api/v1/signin", signinRouter);
-// app.use("/api/v1/landingPage", LandingPageRouter);
 
 // custom routes
-// app.use("/api/v1/manufacturer", manufacturerRouter);
+app.use("/api/v1/manufacturer", manufacturerRouter);
 // app.use("/api/v1/distributor", distributorRouter);
 // app.use("/api/v1/hospital", hospitalRouter);
 // app.use("/api/v1/store", storeRouter);

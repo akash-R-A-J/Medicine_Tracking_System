@@ -15,6 +15,26 @@ function userAuth(req, res, next) {
   }
 }
 
+// middleware/auth.js
+const auth = (req, res, next) => {
+  const token = req.header('x-auth-token');
+  if (!token) {
+    return res.status(401).json({ message: 'No token, authorization denied' });
+  }
+
+  try {
+    const decoded = JWT.verify(token, USER_JWT_SECRET);
+    if (decoded.role !== 'manufacturer') {
+      return res.status(403).json({ message: 'Access denied: Not a manufacturer' });
+    }
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: 'Token is not valid' });
+  }
+};
+
 module.exports = {
     userAuth,
+    auth,
 };
