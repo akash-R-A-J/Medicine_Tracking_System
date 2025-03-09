@@ -299,7 +299,7 @@ router.post("/equipment/transfer", auth, async (req, res) => {
     }
 
     // Simulate Solana ownership transfer
-    // In a real implementation, you’d sign a transaction to transfer the token or update the program account
+    // In a real implementation, you would sign a transaction to transfer the token or update the program account
     const manufacturerPublicKey = req.user.id; // Replace with actual Solana public key in production
 
     // Update equipment in MongoDB

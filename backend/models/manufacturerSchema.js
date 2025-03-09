@@ -15,6 +15,7 @@ const ManufacturerSchema = new mongoose.Schema(
     taxId: { type: String, unique: true },
     gstNumber: { type: String },
     yearOfEstablishment: { type: Number },
+    publicKey: {type: String},
 
     // account details
     username: { type: String, required: true, unique: true },

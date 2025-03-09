@@ -15,6 +15,7 @@ const HospitalSchema = new mongoose.Schema(
     registrationNumber: { type: String, unique: true },
     taxId: { type: String, unique: true },
     yearOfEstablishment: { type: Number },
+    publicKey: {type: String},
 
     // Account details
     username: { type: String, required: true, unique: true },
