@@ -1,10 +1,12 @@
 // routes/distributor.js
 const express = require("express");
-const bcrypt = require("bcryptjs");
+const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const Distributor = require("../models/distributorSchema");
 const Equipment = require("../models/equipmentSchema");
-const auth = require("../middlewares/auth");
+const { auth } = require("../middlewares/auth");
+const { SALT_ROUND, USER_JWT_SECRET } = require("../config");
+
 // const { Connection } = require("@solana/web3.js");
 
 // const connection = new Connection("https://api.devnet.solana.com", "confirmed");
@@ -42,8 +44,7 @@ router.post("/register", async (req, res) => {
     if (distributor)
       return res.status(400).json({ message: "Username already taken" });
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUND);
 
     distributor = new Distributor({
       name,
@@ -63,9 +64,7 @@ router.post("/register", async (req, res) => {
     await distributor.save();
 
     const payload = { id: distributor._id, role: distributor.role };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
+    const token = jwt.sign(payload, USER_JWT_SECRET);
 
     res
       .status(201)
@@ -92,9 +91,7 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
 
     const payload = { id: distributor._id, role: distributor.role };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
+    const token = jwt.sign(payload, USER_JWT_SECRET);
 
     res.json({ token, message: "Login successful" });
   } catch (error) {
@@ -178,3 +175,5 @@ router.post("/equipment/transfer", auth, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+module.exports = router;

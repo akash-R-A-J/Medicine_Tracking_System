@@ -1,12 +1,12 @@
 // routes/hospital.js
 const express = require("express");
-const bcrypt = require("bcryptjs");
+const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const Hospital = require("../models/hospitalSchema");
 const Equipment = require("../models/equipmentSchema");
 const MaintenanceRequest = require("../models/maintenanceSchema");
-const MaintenanceRequest = require("../models/MaintenanceRequest"); // Assume a new schema
-const auth = require("../middleware/auth");
+const { auth } = require("../middlewares/auth");
+const { USER_JWT_SECRET, SALT_ROUND } = require("../config");
 
 const router = express.Router();
 
@@ -39,8 +39,7 @@ router.post("/register", async (req, res) => {
     if (hospital)
       return res.status(400).json({ message: "Username already taken" });
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUND);
 
     hospital = new Hospital({
       name,
@@ -60,9 +59,7 @@ router.post("/register", async (req, res) => {
     await hospital.save();
 
     const payload = { id: hospital._id, role: hospital.role };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
+    const token = jwt.sign(payload, USER_JWT_SECRET);
 
     res
       .status(201)
@@ -89,9 +86,7 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
 
     const payload = { id: hospital._id, role: hospital.role };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
+    const token = jwt.sign(payload, USER_JWT_SECRET);
 
     res.json({ token, message: "Login successful" });
   } catch (error) {
@@ -190,3 +185,5 @@ router.get("/maintenance", auth, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+module.exports = router;
