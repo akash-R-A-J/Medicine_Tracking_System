@@ -18,6 +18,7 @@ function userAuth(req, res, next) {
 // middleware/auth.js
 const auth = (req, res, next) => {
   const token = req.header('x-auth-token');
+  // console.log(token);
   if (!token) {
     return res.status(401).json({ message: 'No token, authorization denied' });
   }
@@ -27,6 +28,7 @@ const auth = (req, res, next) => {
     if (decoded.role !== 'manufacturer') {
       return res.status(403).json({ message: 'Access denied: Not a manufacturer' });
     }
+    // console.log(decoded);
     req.user = decoded;
     next();
   } catch (error) {

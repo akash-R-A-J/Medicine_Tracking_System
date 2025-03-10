@@ -1,21 +1,22 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
+const jwt = require("jsonwebtoken")
 const Manufacturer = require("../models/manufacturerSchema");
 const Equipment = require("../models/equipmentSchema");
 const { auth } = require("../middlewares/auth");
 const { SALT_ROUND, USER_JWT_SECRET } = require("../config");
 
 // Blockchain related imports
-// const {
-//   Connection,
-//   Keypair,
-//   Transaction,
-//   SystemProgram,
-// } = require("@solana/web3.js");
+const {
+  Connection,
+  Transaction,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+  PublicKey
+} = require("@solana/web3.js");
 
 // Initialize Solana connection (use devnet for testing)
-// const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
 const router = express.Router();
 
@@ -38,6 +39,7 @@ router.post("/register", async (req, res) => {
     yearOfEstablishment,
     username,
     password,
+    publicKey,
   } = req.body;
 
   try {
@@ -66,12 +68,13 @@ router.post("/register", async (req, res) => {
       country,
       website,
       registrationNumber,
-      taxId,
+      taxId: taxId || undefined,
       gstNumber,
       yearOfEstablishment,
       username,
       password: hashedPassword,
       role: "manufacturer",
+      publicKey,
     });
 
     await manufacturer.save();
@@ -243,7 +246,7 @@ router.post("/equipment/add", auth, async (req, res) => {
     }
 
     // Simulate Solana token creation (simplified for this example)
-    // In a real implementation, you’d mint a token or create a program account
+    // In a real implementation, you'd mint a token or create a program account
     const manufacturerPublicKey = req.user.id; // Replace with actual Solana public key in production
 
     // Create new equipment in MongoDB
@@ -283,42 +286,88 @@ router.get("/equipment", auth, async (req, res) => {
 // @route   POST /api/manufacturer/equipment/transfer
 // @desc    Transfer equipment ownership to a new owner (e.g., Distributor)
 // @access  Private (Manufacturer only)
-router.post("/equipment/transfer", auth, async (req, res) => {
-  const { serialNumber, newOwnerPublicKey } = req.body;
+router.post('/equipment/transfer', auth, async (req, res) => {
+  const { serialNumber, recipientPublicKey } = req.body;
 
   try {
-    // Find the equipment
-    const equipment = await Equipment.findOne({
-      serialNumber,
-      manufacturerId: req.user.id,
-    });
-    if (!equipment) {
-      return res
-        .status(404)
-        .json({ message: "Equipment not found or not owned by you" });
-    }
+    const manufacturer = await Manufacturer.findById(req.user.id);
+    if (!manufacturer) throw new Error('Manufacturer not found');
 
-    // Simulate Solana ownership transfer
-    // In a real implementation, you would sign a transaction to transfer the token or update the program account
-    const manufacturerPublicKey = req.user.id; // Replace with actual Solana public key in production
+    // Fetch equipment to ensure it exists and is owned by the manufacturer
+    const equipment = await Equipment.findOne({ serialNumber, currentOwner: manufacturer.publicKey });
+    if (!equipment) throw new Error('Equipment not found or not owned by you');
 
-    // Update equipment in MongoDB
-    equipment.currentOwner = newOwnerPublicKey;
-    equipment.status = "Transferred";
+    // Validate recipient public key
+    const recipientPubkey = new PublicKey(recipientPublicKey);
+    if (!PublicKey.isOnCurve(recipientPubkey)) throw new Error('Invalid recipient public key');
+
+    // Generate a simple transaction (e.g., transfer a small amount of SOL as a proof of transfer)
+    const senderPubkey = new PublicKey(manufacturer.publicKey);
+    const transaction = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: senderPubkey,
+        toPubkey: recipientPubkey,
+        lamports: LAMPORTS_PER_SOL * 0.001, // Small fee (0.001 SOL) as a transaction marker
+      })
+    );
+
+    // Fetch recent blockhash
+    const { blockhash } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = senderPubkey;
+
+    // Serialize transaction to send to frontend for signing
+    const serializedTransaction = transaction.serialize({
+      requireAllSignatures: false, // User will sign via Phantom
+    }).toString('base64');
+    
+    console.log("sending serializedTransaction for signing to the frontend....");
+    console.log("serializedTransaction : " + serializedTransaction);
+    console.log(typeof serializedTransaction);
+
+    // Update equipment ownership in MongoDB (after transaction is signed)
+    // Note: This will be confirmed after the frontend sends the signature
+    // For now, return the transaction to the frontend
+    res.json({ transaction: serializedTransaction });
+  } catch (error) {
+    console.error('Transfer error:', error);
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// @route   POST /api/manufacturer/equipment/confirm-transfer
+// @desc    POST equipment confirm-transfer (update the databse after verification)
+// @access  Private (Manufacturer only)
+router.post('/equipment/confirm-transfer', auth, async (req, res) => {
+  const { serialNumber, recipientPublicKey, signature } = req.body;
+
+  try {
+    const manufacturer = await Manufacturer.findById(req.user.id);
+    if (!manufacturer) throw new Error('Manufacturer not found');
+
+    // Fetch equipment to ensure it exists and is owned by the manufacturer
+    const equipment = await Equipment.findOne({ serialNumber, currentOwner: manufacturer.publicKey });
+    if (!equipment) throw new Error('Equipment not found or not owned by you');
+
+    // Confirm transaction on Solana
+    const result = await connection.confirmTransaction(signature, 'confirmed');
+    if (result.value.err) throw new Error('Transaction confirmation failed');
+
+    // Update equipment ownership in MongoDB
+    equipment.currentOwner = recipientPublicKey;
     equipment.history.push({
-      action: "Transferred",
-      user: manufacturerPublicKey,
+      action: 'Transferred',
+      user: manufacturer.publicKey,
       timestamp: new Date(),
     });
-
     await equipment.save();
-    res.json({
-      message: "Equipment ownership transferred successfully",
-      equipment,
-    });
+    
+    console.log('Equipment ownership transferred successfully', signature);
+
+    res.json({ message: 'Equipment ownership transferred successfully', signature });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    console.error('Confirm transfer error:', error);
+    res.status(400).json({ message: error.message });
   }
 });
 

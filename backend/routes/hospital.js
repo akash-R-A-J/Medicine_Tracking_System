@@ -8,7 +8,21 @@ const MaintenanceRequest = require("../models/maintenanceSchema");
 const { auth } = require("../middlewares/auth");
 const { USER_JWT_SECRET, SALT_ROUND } = require("../config");
 
+// Blockchain related imports
+const {
+  Connection,
+  Transaction,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+  PublicKey
+} = require("@solana/web3.js");
+
+// Initialize Solana connection (use devnet for testing)
+const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+
 const router = express.Router();
+
+/* ACCOUNT MANAGEMENT ROUTES */
 
 // @route   POST /api/hospital/register
 // @desc    Register a new hospital
@@ -26,6 +40,7 @@ router.post("/register", async (req, res) => {
     yearOfEstablishment,
     username,
     password,
+    publicKey,
   } = req.body;
 
   try {
@@ -54,6 +69,7 @@ router.post("/register", async (req, res) => {
       username,
       password: hashedPassword,
       role: "hospital",
+      publicKey,
     });
 
     await hospital.save();
@@ -95,6 +111,27 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// @route   GET /api/manufacturer/profile
+// @desc    Get manufacturer profile
+// @access  Private (Manufacturer only)
+router.get("/profile", auth, async (req, res) => {
+  try {
+    const hospital = await Hospital.findById(req.user.id).select(
+      "-password"
+    );
+    if (!hospital) {
+      return res.status(404).json({ message: "Hospital not found" });
+    }
+    res.json(hospital);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+
+/* EQIPMENT MANAGEMENT */
+
 // @route   GET /api/hospital/equipment
 // @desc    Get all equipment assigned to the hospital
 // @access  Private (Hospital only)
@@ -110,33 +147,58 @@ router.get("/equipment", auth, async (req, res) => {
 
 // @route   POST /api/hospital/equipment/validate
 // @desc    Validate equipment authenticity
-// @access  Private (Hospital only)
+// @access  Private (Distributor only)
 router.post("/equipment/validate", auth, async (req, res) => {
-  const { serialNumber } = req.body;
-
   try {
-    const equipment = await Equipment.findOne({
-      serialNumber,
-      currentOwner: req.user.id,
-    });
-    if (!equipment)
-      return res
-        .status(404)
-        .json({ message: "Equipment not found or not owned by you" });
+    // for now, it is validating all equipments which is transferred to this hospital
+    // Get distributor's publicKey from authenticated user
+    const hospital = await Hospital.findById(req.user.id);
+    if (!hospital) throw new Error("Hospital not found");
 
-    // Simulate blockchain validation
-    equipment.status = "Validated";
-    equipment.history.push({
-      action: "Validated",
-      user: req.user.id,
-      timestamp: new Date(),
+    // Find equipment where:
+    // - The latest history entry is "Transferred"
+    // - The recipient in that transfer is the distributor's public key
+    const equipmentList = await Equipment.find({
+      "history.action": "Transferred",
+      "history.user": hospital.publicKey, // Check if distributor is the latest recipient
     });
-    await equipment.save();
 
-    res.json({ message: "Equipment validated successfully", equipment });
+    if (equipmentList.length === 0) {
+      return res.status(404).json({
+        message: "No transferred equipment found for validation",
+      });
+    }
+
+    // Validate each eligible equipment
+    let validatedEquipment = [];
+    for (const equipment of equipmentList) {
+      // Ensure last history entry is a transfer to this distributor
+      const lastHistoryEntry = equipment.history[equipment.history.length - 1];
+
+      if (
+        lastHistoryEntry.action === "Transferred" &&
+        lastHistoryEntry.user === hospital.publicKey
+      ) {
+        // Mark equipment as validated
+        equipment.status = "In-use";
+        equipment.history.push({
+          action: "Validated",
+          user: hospital.publicKey,
+          timestamp: new Date(),
+        });
+
+        await equipment.save();
+        validatedEquipment.push(equipment);
+      }
+    }
+
+    res.json({
+      message: `${validatedEquipment.length} equipment validated successfully`,
+      validatedEquipment,
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    console.error("Validate equipment error:", error);
+    res.status(400).json({ message: error.message });
   }
 });
 

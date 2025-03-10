@@ -7,9 +7,15 @@ const Equipment = require("../models/equipmentSchema");
 const { auth } = require("../middlewares/auth");
 const { SALT_ROUND, USER_JWT_SECRET } = require("../config");
 
-// const { Connection } = require("@solana/web3.js");
-
-// const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+// Blockchain related imports
+const {
+  Connection,
+  Transaction,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+  PublicKey
+} = require("@solana/web3.js");
+const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
 const router = express.Router();
 
@@ -117,26 +123,56 @@ router.get("/equipment", auth, async (req, res) => {
 // @desc    Validate equipment authenticity
 // @access  Private (Distributor only)
 router.post("/equipment/validate", auth, async (req, res) => {
-  const { serialNumber } = req.body;
-
   try {
-    const equipment = await Equipment.findOne({ serialNumber });
-    if (!equipment)
-      return res.status(404).json({ message: "Equipment not found" });
+    // for now, it is validating all equipments which is transferred to this distributor
+    // Get distributor's publicKey from authenticated user
+    const distributor = await Distributor.findById(req.user.id);
+    if (!distributor) throw new Error("Distributor not found");
 
-    // Simulate blockchain validation (replace with Solana logic)
-    equipment.status = "Validated";
-    equipment.history.push({
-      action: "Validated",
-      user: req.user.id,
-      timestamp: new Date(),
+    // Find equipment where:
+    // - The latest history entry is "Transferred"
+    // - The recipient in that transfer is the distributor's public key
+    const equipmentList = await Equipment.find({
+      "history.action": "Transferred",
+      "history.user": distributor.publicKey, // Check if distributor is the latest recipient
     });
-    await equipment.save();
 
-    res.json({ message: "Equipment validated successfully", equipment });
+    if (equipmentList.length === 0) {
+      return res.status(404).json({
+        message: "No transferred equipment found for validation",
+      });
+    }
+
+    // Validate each eligible equipment
+    let validatedEquipment = [];
+    for (const equipment of equipmentList) {
+      // Ensure last history entry is a transfer to this distributor
+      const lastHistoryEntry = equipment.history[equipment.history.length - 1];
+
+      if (
+        lastHistoryEntry.action === "Transferred" &&
+        lastHistoryEntry.user === distributor.publicKey
+      ) {
+        // Mark equipment as validated
+        equipment.status = "Validated";
+        equipment.history.push({
+          action: "Validated",
+          user: distributor.publicKey,
+          timestamp: new Date(),
+        });
+
+        await equipment.save();
+        validatedEquipment.push(equipment);
+      }
+    }
+
+    res.json({
+      message: `${validatedEquipment.length} equipment validated successfully`,
+      validatedEquipment,
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    console.error("Validate equipment error:", error);
+    res.status(400).json({ message: error.message });
   }
 });
 
@@ -144,35 +180,94 @@ router.post("/equipment/validate", auth, async (req, res) => {
 // @desc    Transfer equipment to a hospital
 // @access  Private (Distributor only)
 router.post("/equipment/transfer", auth, async (req, res) => {
-  const { serialNumber, newOwnerPublicKey } = req.body;
+  const { serialNumber, recipientPublicKey } = req.body;
 
   try {
+    const distributor = await Distributor.findById(req.user.id);
+    if (!distributor) throw new Error('Distributor not found');
+    
     const equipment = await Equipment.findOne({
       serialNumber,
-      currentOwner: req.user.id,
+      currentOwner: distributor.publicKey,
     });
     if (!equipment)
       return res
         .status(404)
         .json({ message: "Equipment not found or not owned by you" });
 
-    // Simulate Solana ownership transfer
-    equipment.currentOwner = newOwnerPublicKey;
-    equipment.status = "Transferred";
-    equipment.history.push({
-      action: "Transferred",
-      user: req.user.id,
-      timestamp: new Date(),
-    });
-    await equipment.save();
+        
+    // Validate recipient public key
+    const recipientPubkey = new PublicKey(recipientPublicKey);
+    if (!PublicKey.isOnCurve(recipientPubkey)) throw new Error('Invalid recipient public key');
+        
+    
+    // Generate a simple transaction (e.g., transfer a small amount of SOL as a proof of transfer)
+    const senderPubkey = new PublicKey(distributor.publicKey);
+    const transaction = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: senderPubkey,
+        toPubkey: recipientPubkey,
+        lamports: LAMPORTS_PER_SOL * 0.001, // Small fee (0.001 SOL) as a transaction marker
+      })
+    );
+    
+    // Fetch recent blockhash
+    const { blockhash } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = senderPubkey;
+    
+    // Serialize transaction to send to frontend for signing
+    const serializedTransaction = transaction.serialize({
+      requireAllSignatures: false, // User will sign via Phantom
+    }).toString('base64');
+    
+    console.log("sending serializedTransaction for signing to the frontend....");
+    console.log("serializedTransaction : " + serializedTransaction);
+    console.log(typeof serializedTransaction);
 
-    res.json({
-      message: "Equipment ownership transferred successfully",
-      equipment,
-    });
+    // Update equipment ownership in MongoDB (after transaction is signed)
+    // Note: This will be confirmed after the frontend sends the signature
+    // For now, return the transaction to the frontend
+    res.json({ transaction: serializedTransaction });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+// @route   POST /api/manufacturer/equipment/confirm-transfer
+// @desc    POST equipment confirm-transfer (update the databse after verification)
+// @access  Private (Manufacturer only)
+router.post('/equipment/confirm-transfer', auth, async (req, res) => {
+  const { serialNumber, recipientPublicKey, signature } = req.body;
+
+  try {
+    const distributor = await Distributor.findById(req.user.id);
+    if (!distributor) throw new Error('Manufacturer not found');
+
+    // Fetch equipment to ensure it exists and is owned by the manufacturer
+    const equipment = await Equipment.findOne({ serialNumber, currentOwner: distributor.publicKey });
+    if (!equipment) throw new Error('Equipment not found or not owned by you');
+
+    // Confirm transaction on Solana
+    const result = await connection.confirmTransaction(signature, 'confirmed');
+    if (result.value.err) throw new Error('Transaction confirmation failed');
+
+    // Update equipment ownership in MongoDB
+    equipment.currentOwner = recipientPublicKey;
+    equipment.history.push({
+      action: 'Transferred',
+      user: distributor.publicKey,
+      timestamp: new Date(),
+    });
+    await equipment.save();
+    
+    console.log('Equipment ownership transferred successfully', signature);
+
+    res.json({ message: 'Equipment ownership transferred successfully', signature });
+  } catch (error) {
+    console.error('Confirm transfer error:', error);
+    res.status(400).json({ message: error.message });
   }
 });
 

@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@solana/web3.js": "^1.98.0",
     "backend": "file:",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
