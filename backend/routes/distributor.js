@@ -1,11 +1,14 @@
 // routes/distributor.js
 const express = require("express");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
 const Distributor = require("../models/distributorSchema");
 const Equipment = require("../models/equipmentSchema");
-const { auth } = require("../middlewares/auth");
-const { SALT_ROUND, USER_JWT_SECRET } = require("../config");
+const { distributorAuth } = require("../middlewares/auth");
+const { transferOwnership, validateOwnership } = require("./blockchain");
+const { getEquipment } = require("../general/account");
+const { signup } = require("../util/signup");
+const { login } = require("../util/login");
+
+// 4ckWGAQ5atkPviAyQpRtkAsaGGHFEv5TvxYfCKtGfxscHiVoVmHiYMxMbLWdnrxUS3V9UpWod8SgQpUxyLHRrZCa
 
 // Blockchain related imports
 const {
@@ -13,7 +16,7 @@ const {
   Transaction,
   SystemProgram,
   LAMPORTS_PER_SOL,
-  PublicKey
+  PublicKey,
 } = require("@solana/web3.js");
 const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
@@ -24,82 +27,25 @@ const router = express.Router();
 // @route   POST /api/distributor/register
 // @desc    Register a new distributor
 // @access  Public
-router.post("/register", async (req, res) => {
-  const {
-    name,
-    email,
-    phone,
-    address,
-    country,
-    website,
-    registrationNumber,
-    taxId,
-    yearOfEstablishment,
-    username,
-    password,
-  } = req.body;
-
-  try {
-    let distributor = await Distributor.findOne({ email });
-    if (distributor)
-      return res
-        .status(400)
-        .json({ message: "Distributor with this email already exists" });
-
-    distributor = await Distributor.findOne({ username });
-    if (distributor)
-      return res.status(400).json({ message: "Username already taken" });
-
-    const hashedPassword = await bcrypt.hash(password, SALT_ROUND);
-
-    distributor = new Distributor({
-      name,
-      email,
-      phone,
-      address,
-      country,
-      website,
-      registrationNumber,
-      taxId,
-      yearOfEstablishment,
-      username,
-      password: hashedPassword,
-      role: "distributor",
-    });
-
-    await distributor.save();
-
-    const payload = { id: distributor._id, role: distributor.role };
-    const token = jwt.sign(payload, USER_JWT_SECRET);
-
-    res
-      .status(201)
-      .json({ token, message: "Distributor registered successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+router.post("/register", signup);
 
 // @route   POST /api/distributor/login
 // @desc    Login a distributor
 // @access  Public
-router.post("/login", async (req, res) => {
-  const { username, password } = req.body;
+router.post("/login", login);
 
+// @route   GET /api/manufacturer/profile
+// @desc    Get manufacturer profile
+// @access  Private (Manufacturer only)
+router.get("/profile", distributorAuth, async (req, res) => {
   try {
-    const distributor = await Distributor.findOne({ username });
-    if (!distributor)
-      return res.status(400).json({ message: "Invalid credentials" });
-
-    const isMatch = await bcrypt.compare(password, distributor.password);
-    if (!isMatch)
-      return res.status(400).json({ message: "Invalid credentials" });
-
-    const payload = { id: distributor._id, role: distributor.role };
-    const token = jwt.sign(payload, USER_JWT_SECRET);
-
-    res.json({ token, message: "Login successful" });
+    const distributor = await Distributor.findById(req.user.id).select(
+      "-password"
+    );
+    if (!distributor) {
+      return res.status(404).json({ message: "Distributor not found" });
+    }
+    res.json(distributor);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error" });
@@ -109,12 +55,16 @@ router.post("/login", async (req, res) => {
 // @route   GET /api/distributor/equipment
 // @desc    Get all equipment assigned to the distributor
 // @access  Private (Distributor only)
-router.get("/equipment", auth, async (req, res) => {
+router.get("/equipment", distributorAuth, async (req, res) => {
   try {
-    const equipment = await Equipment.find({ currentOwner: req.user.id });
+    const equipment = await getEquipment(Distributor, req.user.id);
+    if (!equipment) {
+      return res.status(404).json({ message: "No equipment found" });
+    }
+
     res.json(equipment);
   } catch (error) {
-    console.error(error);
+    console.error("Error fetching equipment:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -122,20 +72,28 @@ router.get("/equipment", auth, async (req, res) => {
 // @route   POST /api/distributor/equipment/validate
 // @desc    Validate equipment authenticity
 // @access  Private (Distributor only)
-router.post("/equipment/validate", auth, async (req, res) => {
+router.post("/equipment/validate", distributorAuth, async (req, res) => {
   try {
+    console.log("validating equipment at the backend...");
     // for now, it is validating all equipments which is transferred to this distributor
     // Get distributor's publicKey from authenticated user
     const distributor = await Distributor.findById(req.user.id);
     if (!distributor) throw new Error("Distributor not found");
 
+    console.log(distributor);
     // Find equipment where:
     // - The latest history entry is "Transferred"
     // - The recipient in that transfer is the distributor's public key
+    // const equipmentList = await Equipment.find({
+    //   "history.action": "Transferred",
+    //   "history.user": distributor.publicKey, // Check if distributor is the latest recipient
+    // });
+
     const equipmentList = await Equipment.find({
-      "history.action": "Transferred",
-      "history.user": distributor.publicKey, // Check if distributor is the latest recipient
+      currentOwner: distributor.publicKey, // Ensure the latest recipient is still the distributor
     });
+
+    console.log(equipmentList);
 
     if (equipmentList.length === 0) {
       return res.status(404).json({
@@ -149,9 +107,12 @@ router.post("/equipment/validate", auth, async (req, res) => {
       // Ensure last history entry is a transfer to this distributor
       const lastHistoryEntry = equipment.history[equipment.history.length - 1];
 
+      console.log(lastHistoryEntry);
+
+      // validation logic
       if (
         lastHistoryEntry.action === "Transferred" &&
-        lastHistoryEntry.user === distributor.publicKey
+        validateOwnership(lastHistoryEntry.signature, lastHistoryEntry.user)
       ) {
         // Mark equipment as validated
         equipment.status = "Validated";
@@ -160,6 +121,8 @@ router.post("/equipment/validate", auth, async (req, res) => {
           user: distributor.publicKey,
           timestamp: new Date(),
         });
+
+        console.log("updating databse...");
 
         await equipment.save();
         validatedEquipment.push(equipment);
@@ -179,13 +142,13 @@ router.post("/equipment/validate", auth, async (req, res) => {
 // @route   POST /api/distributor/equipment/transfer
 // @desc    Transfer equipment to a hospital
 // @access  Private (Distributor only)
-router.post("/equipment/transfer", auth, async (req, res) => {
+router.post("/equipment/transfer", distributorAuth, async (req, res) => {
   const { serialNumber, recipientPublicKey } = req.body;
 
   try {
     const distributor = await Distributor.findById(req.user.id);
-    if (!distributor) throw new Error('Distributor not found');
-    
+    if (!distributor) throw new Error("Distributor not found");
+
     const equipment = await Equipment.findOne({
       serialNumber,
       currentOwner: distributor.publicKey,
@@ -195,12 +158,11 @@ router.post("/equipment/transfer", auth, async (req, res) => {
         .status(404)
         .json({ message: "Equipment not found or not owned by you" });
 
-        
     // Validate recipient public key
     const recipientPubkey = new PublicKey(recipientPublicKey);
-    if (!PublicKey.isOnCurve(recipientPubkey)) throw new Error('Invalid recipient public key');
-        
-    
+    if (!PublicKey.isOnCurve(recipientPubkey))
+      throw new Error("Invalid recipient public key");
+
     // Generate a simple transaction (e.g., transfer a small amount of SOL as a proof of transfer)
     const senderPubkey = new PublicKey(distributor.publicKey);
     const transaction = new Transaction().add(
@@ -210,18 +172,22 @@ router.post("/equipment/transfer", auth, async (req, res) => {
         lamports: LAMPORTS_PER_SOL * 0.001, // Small fee (0.001 SOL) as a transaction marker
       })
     );
-    
+
     // Fetch recent blockhash
     const { blockhash } = await connection.getLatestBlockhash();
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = senderPubkey;
-    
+
     // Serialize transaction to send to frontend for signing
-    const serializedTransaction = transaction.serialize({
-      requireAllSignatures: false, // User will sign via Phantom
-    }).toString('base64');
-    
-    console.log("sending serializedTransaction for signing to the frontend....");
+    const serializedTransaction = transaction
+      .serialize({
+        requireAllSignatures: false, // User will sign via Phantom
+      })
+      .toString("base64");
+
+    console.log(
+      "sending serializedTransaction for signing to the frontend...."
+    );
     console.log("serializedTransaction : " + serializedTransaction);
     console.log(typeof serializedTransaction);
 
@@ -238,35 +204,41 @@ router.post("/equipment/transfer", auth, async (req, res) => {
 // @route   POST /api/manufacturer/equipment/confirm-transfer
 // @desc    POST equipment confirm-transfer (update the databse after verification)
 // @access  Private (Manufacturer only)
-router.post('/equipment/confirm-transfer', auth, async (req, res) => {
+router.post("/equipment/confirm-transfer", distributorAuth, async (req, res) => {
   const { serialNumber, recipientPublicKey, signature } = req.body;
 
   try {
     const distributor = await Distributor.findById(req.user.id);
-    if (!distributor) throw new Error('Manufacturer not found');
+    if (!distributor) throw new Error("Manufacturer not found");
 
     // Fetch equipment to ensure it exists and is owned by the manufacturer
-    const equipment = await Equipment.findOne({ serialNumber, currentOwner: distributor.publicKey });
-    if (!equipment) throw new Error('Equipment not found or not owned by you');
+    const equipment = await Equipment.findOne({
+      serialNumber,
+      currentOwner: distributor.publicKey,
+    });
+    if (!equipment) throw new Error("Equipment not found or not owned by you");
 
     // Confirm transaction on Solana
-    const result = await connection.confirmTransaction(signature, 'confirmed');
-    if (result.value.err) throw new Error('Transaction confirmation failed');
+    const result = await connection.confirmTransaction(signature, "confirmed");
+    if (result.value.err) throw new Error("Transaction confirmation failed");
 
     // Update equipment ownership in MongoDB
     equipment.currentOwner = recipientPublicKey;
     equipment.history.push({
-      action: 'Transferred',
+      action: "Transferred",
       user: distributor.publicKey,
       timestamp: new Date(),
     });
     await equipment.save();
-    
-    console.log('Equipment ownership transferred successfully', signature);
 
-    res.json({ message: 'Equipment ownership transferred successfully', signature });
+    console.log("Equipment ownership transferred successfully", signature);
+
+    res.json({
+      message: "Equipment ownership transferred successfully",
+      signature,
+    });
   } catch (error) {
-    console.error('Confirm transfer error:', error);
+    console.error("Confirm transfer error:", error);
     res.status(400).json({ message: error.message });
   }
 });

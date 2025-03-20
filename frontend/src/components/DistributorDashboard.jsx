@@ -49,6 +49,7 @@ function DistributorDashboard() {
   const handleValidateSubmit = async (e) => {
     e.preventDefault();
     try {
+      console.log("validating equipment on the frontend....")
       const response = await axios.post('http://localhost:3000/api/v1/distributor/equipment/validate', validateFormData, {
         headers: { "x-auth-token": `${localStorage.getItem('token')}` },
       });
@@ -125,7 +126,7 @@ function DistributorDashboard() {
       
       {/* actions/functionalities */}
       <div style={{ marginBottom: '20px' }}>
-        <Link to="/profile" style={{ padding: '10px', backgroundColor: '#6c757d', color: '#fff', textDecoration: 'none', borderRadius: '4px', display: 'inline-block' }}>
+        <Link to="/profile" style={{ padding: '8px', backgroundColor: '#6c757d', color: '#fff', textDecoration: 'none', borderRadius: '4px', display: 'inline-block', marginRight: 10 }}>
           View Profile
         </Link>
         

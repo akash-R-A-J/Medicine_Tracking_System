@@ -1,22 +1,13 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken")
 const Manufacturer = require("../models/manufacturerSchema");
 const Equipment = require("../models/equipmentSchema");
-const { auth } = require("../middlewares/auth");
-const { SALT_ROUND, USER_JWT_SECRET } = require("../config");
-
-// Blockchain related imports
-const {
-  Connection,
-  Transaction,
-  SystemProgram,
-  LAMPORTS_PER_SOL,
-  PublicKey
-} = require("@solana/web3.js");
-
-// Initialize Solana connection (use devnet for testing)
-const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+const { manufacturerAuth } = require("../middlewares/auth");
+const { SALT_ROUND } = require("../config");
+const { transferOwnership, confirmTransfer } = require("../routes/blockchain");
+const { addEquipment } = require("../general/equipment");
+const { signup } = require("../util/signup");
+const { login } = require("../util/login");
 
 const router = express.Router();
 
@@ -25,118 +16,17 @@ const router = express.Router();
 // @route   POST /api/manufacturer/register
 // @desc    Register a new manufacturer
 // @access  Public
-router.post("/register", async (req, res) => {
-  const {
-    name,
-    email,
-    phone,
-    address,
-    country,
-    website,
-    registrationNumber,
-    taxId,
-    gstNumber,
-    yearOfEstablishment,
-    username,
-    password,
-    publicKey,
-  } = req.body;
-
-  try {
-    // Check if manufacturer already exists
-    let manufacturer = await Manufacturer.findOne({ email });
-    if (manufacturer) {
-      return res
-        .status(400)
-        .json({ message: "Manufacturer with this email already exists" });
-    }
-
-    manufacturer = await Manufacturer.findOne({ username });
-    if (manufacturer) {
-      return res.status(400).json({ message: "Username already taken" });
-    }
-
-    // Hash the password
-    const hashedPassword = await bcrypt.hash(password, SALT_ROUND);
-
-    // Create new manufacturer
-    manufacturer = new Manufacturer({
-      name,
-      email,
-      phone,
-      address,
-      country,
-      website,
-      registrationNumber,
-      taxId: taxId || undefined,
-      gstNumber,
-      yearOfEstablishment,
-      username,
-      password: hashedPassword,
-      role: "manufacturer",
-      publicKey,
-    });
-
-    await manufacturer.save();
-
-    // Generate JWT token
-    const payload = {
-      id: manufacturer._id,
-      role: manufacturer.role,
-    };
-
-    // add expiration duration for this token
-    const token = jwt.sign(payload, USER_JWT_SECRET); // why??
-
-    res
-      .status(201)
-      .header({ "x-auth-token": token })
-      .json({ token, message: "Manufacturer registered successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+router.post("/register", signup);
 
 // @route   POST /api/manufacturer/login
 // @desc    Login a manufacturer
 // @access  Public
-router.post("/login", async (req, res) => {
-  // username => email
-  const { username, password } = req.body;
-
-  try {
-    // Check if manufacturer exists
-    const manufacturer = await Manufacturer.findOne({ username });
-    if (!manufacturer) {
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
-
-    // Verify password
-    const isMatch = await bcrypt.compare(password, manufacturer.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
-
-    // Generate JWT token
-    const payload = {
-      id: manufacturer._id,
-      role: manufacturer.role,
-    };
-
-    const token = jwt.sign(payload, USER_JWT_SECRET);
-
-    res.json({ token, message: "Login successful" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+router.post("/login", login);
 
 // @route   GET /api/manufacturer/profile
 // @desc    Get manufacturer profile
 // @access  Private (Manufacturer only)
-router.get("/profile", auth, async (req, res) => {
+router.get("/profile", manufacturerAuth, async (req, res) => {
   try {
     const manufacturer = await Manufacturer.findById(req.user.id).select(
       "-password"
@@ -154,7 +44,7 @@ router.get("/profile", auth, async (req, res) => {
 // @route   PUT /api/manufacturer/profile
 // @desc    Update manufacturer profile
 // @access  Private (Manufacturer only)
-router.put("/profile", auth, async (req, res) => {
+router.put("/profile", manufacturerAuth, async (req, res) => {
   const {
     name,
     email,
@@ -199,7 +89,7 @@ router.put("/profile", auth, async (req, res) => {
 // @route   POST /api/manufacturer/change-password
 // @desc    Change manufacturer password
 // @access  Private (Manufacturer only)
-router.post("/change-password", auth, async (req, res) => {
+router.post("/change-password", manufacturerAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
   try {
@@ -233,47 +123,12 @@ router.post("/change-password", auth, async (req, res) => {
 // @route   POST /api/manufacturer/equipment/add
 // @desc    Add new equipment
 // @access  Private (Manufacturer only)
-router.post("/equipment/add", auth, async (req, res) => {
-  const { name, serialNumber, description } = req.body;
-
-  try {
-    // Check if equipment with this serial number already exists
-    let equipment = await Equipment.findOne({ serialNumber });
-    if (equipment) {
-      return res
-        .status(400)
-        .json({ message: "Equipment with this serial number already exists" });
-    }
-
-    // Simulate Solana token creation (simplified for this example)
-    // In a real implementation, you'd mint a token or create a program account
-    const manufacturerPublicKey = req.user.id; // Replace with actual Solana public key in production
-
-    // Create new equipment in MongoDB
-    equipment = new Equipment({
-      name,
-      serialNumber,
-      description,
-      status: "Available",
-      manufacturerId: req.user.id,
-      currentOwner: manufacturerPublicKey,
-      history: [{ action: "Created", user: manufacturerPublicKey }],
-    });
-
-    await equipment.save();
-    res
-      .status(201)
-      .json({ message: "Equipment added successfully", equipment });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+router.post("/equipment/add", manufacturerAuth, addEquipment);
 
 // @route   GET /api/manufacturer/equipment
 // @desc    Get all equipment created by the manufacturer
 // @access  Private (Manufacturer only)
-router.get("/equipment", auth, async (req, res) => {
+router.get("/equipment", manufacturerAuth, async (req, res) => {
   try {
     const equipment = await Equipment.find({ manufacturerId: req.user.id });
     res.json(equipment);
@@ -286,51 +141,25 @@ router.get("/equipment", auth, async (req, res) => {
 // @route   POST /api/manufacturer/equipment/transfer
 // @desc    Transfer equipment ownership to a new owner (e.g., Distributor)
 // @access  Private (Manufacturer only)
-router.post('/equipment/transfer', auth, async (req, res) => {
+router.post("/equipment/transfer", manufacturerAuth, async (req, res) => {
   const { serialNumber, recipientPublicKey } = req.body;
 
   try {
-    const manufacturer = await Manufacturer.findById(req.user.id);
-    if (!manufacturer) throw new Error('Manufacturer not found');
-
-    // Fetch equipment to ensure it exists and is owned by the manufacturer
-    const equipment = await Equipment.findOne({ serialNumber, currentOwner: manufacturer.publicKey });
-    if (!equipment) throw new Error('Equipment not found or not owned by you');
-
-    // Validate recipient public key
-    const recipientPubkey = new PublicKey(recipientPublicKey);
-    if (!PublicKey.isOnCurve(recipientPubkey)) throw new Error('Invalid recipient public key');
-
-    // Generate a simple transaction (e.g., transfer a small amount of SOL as a proof of transfer)
-    const senderPubkey = new PublicKey(manufacturer.publicKey);
-    const transaction = new Transaction().add(
-      SystemProgram.transfer({
-        fromPubkey: senderPubkey,
-        toPubkey: recipientPubkey,
-        lamports: LAMPORTS_PER_SOL * 0.001, // Small fee (0.001 SOL) as a transaction marker
-      })
+    // Serialize transaction to send to frontend for signing
+    const serializedTransaction = await transferOwnership(
+      Manufacturer,
+      serialNumber,
+      recipientPublicKey
     );
 
-    // Fetch recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash();
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = senderPubkey;
+    if (!serializedTransaction) {
+      res.status(400).json({ "error:": "invalid serialized transaction" });
+      return;
+    }
 
-    // Serialize transaction to send to frontend for signing
-    const serializedTransaction = transaction.serialize({
-      requireAllSignatures: false, // User will sign via Phantom
-    }).toString('base64');
-    
-    console.log("sending serializedTransaction for signing to the frontend....");
-    console.log("serializedTransaction : " + serializedTransaction);
-    console.log(typeof serializedTransaction);
-
-    // Update equipment ownership in MongoDB (after transaction is signed)
-    // Note: This will be confirmed after the frontend sends the signature
-    // For now, return the transaction to the frontend
     res.json({ transaction: serializedTransaction });
   } catch (error) {
-    console.error('Transfer error:', error);
+    console.error("Transfer error:", error);
     res.status(400).json({ message: error.message });
   }
 });
@@ -338,35 +167,29 @@ router.post('/equipment/transfer', auth, async (req, res) => {
 // @route   POST /api/manufacturer/equipment/confirm-transfer
 // @desc    POST equipment confirm-transfer (update the databse after verification)
 // @access  Private (Manufacturer only)
-router.post('/equipment/confirm-transfer', auth, async (req, res) => {
+router.post("/equipment/confirm-transfer", manufacturerAuth, async (req, res) => {
   const { serialNumber, recipientPublicKey, signature } = req.body;
 
   try {
-    const manufacturer = await Manufacturer.findById(req.user.id);
-    if (!manufacturer) throw new Error('Manufacturer not found');
+    const confirmation = await confirmTransfer(
+      Manufacturer,
+      res.user.id,
+      serialNumber,
+      recipientPublicKey,
+      signature
+    );
 
-    // Fetch equipment to ensure it exists and is owned by the manufacturer
-    const equipment = await Equipment.findOne({ serialNumber, currentOwner: manufacturer.publicKey });
-    if (!equipment) throw new Error('Equipment not found or not owned by you');
+    if (!confirmation) {
+      res.status(400).json({ error: "Transaction confirmation failed" });
+      return;
+    }
 
-    // Confirm transaction on Solana
-    const result = await connection.confirmTransaction(signature, 'confirmed');
-    if (result.value.err) throw new Error('Transaction confirmation failed');
-
-    // Update equipment ownership in MongoDB
-    equipment.currentOwner = recipientPublicKey;
-    equipment.history.push({
-      action: 'Transferred',
-      user: manufacturer.publicKey,
-      timestamp: new Date(),
+    res.json({
+      message: "Equipment ownership transferred successfully",
+      signature,
     });
-    await equipment.save();
-    
-    console.log('Equipment ownership transferred successfully', signature);
-
-    res.json({ message: 'Equipment ownership transferred successfully', signature });
   } catch (error) {
-    console.error('Confirm transfer error:', error);
+    console.error("Confirm transfer error:", error);
     res.status(400).json({ message: error.message });
   }
 });
@@ -374,7 +197,7 @@ router.post('/equipment/confirm-transfer', auth, async (req, res) => {
 // @route   GET /api/manufacturer/compliance-logs
 // @desc    Get compliance logs (simplified as equipment history for now)
 // @access  Private (Manufacturer only)
-router.get("/compliance-logs", auth, async (req, res) => {
+router.get("/compliance-logs", manufacturerAuth, async (req, res) => {
   try {
     const equipment = await Equipment.find({ manufacturerId: req.user.id });
     const logs = equipment.flatMap((item) =>

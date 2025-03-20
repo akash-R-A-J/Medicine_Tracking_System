@@ -1,5 +1,4 @@
 const mongoose = require("mongoose");
-const { type } = require("os");
 
 const ManufacturerSchema = new mongoose.Schema(
   {
@@ -22,7 +21,7 @@ const ManufacturerSchema = new mongoose.Schema(
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true }, // Store hashed password
     role: { type: String, default: "manufacturer" },
-    publicKey: {type: String},
+
   },
   { timestamps: true }
 );

@@ -12,6 +12,7 @@ const EquipmentSchema = new mongoose.Schema(
       {
         action: String, // e.g., "Created", "Transferred"
         user: String,   // Public key or ID of the user performing the action
+        signature: {type: String}, // for transfer and validation
         timestamp: { type: Date, default: Date.now },
       },
     ],

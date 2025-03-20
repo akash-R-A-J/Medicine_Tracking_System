@@ -1,24 +1,12 @@
 // routes/hospital.js
 const express = require("express");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
 const Hospital = require("../models/hospitalSchema");
 const Equipment = require("../models/equipmentSchema");
 const MaintenanceRequest = require("../models/maintenanceSchema");
-const { auth } = require("../middlewares/auth");
-const { USER_JWT_SECRET, SALT_ROUND } = require("../config");
-
-// Blockchain related imports
-const {
-  Connection,
-  Transaction,
-  SystemProgram,
-  LAMPORTS_PER_SOL,
-  PublicKey
-} = require("@solana/web3.js");
-
-// Initialize Solana connection (use devnet for testing)
-const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+const { hospitalAuth } = require("../middlewares/auth");
+const { getEquipment } = require("../general/account");
+const { signup } = require("../util/signup");
+const { login } = require("../util/login");
 
 const router = express.Router();
 
@@ -27,98 +15,19 @@ const router = express.Router();
 // @route   POST /api/hospital/register
 // @desc    Register a new hospital
 // @access  Public
-router.post("/register", async (req, res) => {
-  const {
-    name,
-    email,
-    phone,
-    address,
-    country,
-    website,
-    registrationNumber,
-    taxId,
-    yearOfEstablishment,
-    username,
-    password,
-    publicKey,
-  } = req.body;
-
-  try {
-    let hospital = await Hospital.findOne({ email });
-    if (hospital)
-      return res
-        .status(400)
-        .json({ message: "Hospital with this email already exists" });
-
-    hospital = await Hospital.findOne({ username });
-    if (hospital)
-      return res.status(400).json({ message: "Username already taken" });
-
-    const hashedPassword = await bcrypt.hash(password, SALT_ROUND);
-
-    hospital = new Hospital({
-      name,
-      email,
-      phone,
-      address,
-      country,
-      website,
-      registrationNumber,
-      taxId,
-      yearOfEstablishment,
-      username,
-      password: hashedPassword,
-      role: "hospital",
-      publicKey,
-    });
-
-    await hospital.save();
-
-    const payload = { id: hospital._id, role: hospital.role };
-    const token = jwt.sign(payload, USER_JWT_SECRET);
-
-    res
-      .status(201)
-      .json({ token, message: "Hospital registered successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+router.post("/register", signup);
 
 // @route   POST /api/hospital/login
 // @desc    Login a hospital
 // @access  Public
-router.post("/login", async (req, res) => {
-  const { username, password } = req.body;
-
-  try {
-    const hospital = await Hospital.findOne({ username });
-    if (!hospital)
-      return res.status(400).json({ message: "Invalid credentials" });
-
-    const isMatch = await bcrypt.compare(password, hospital.password);
-    if (!isMatch)
-      return res.status(400).json({ message: "Invalid credentials" });
-
-    const payload = { id: hospital._id, role: hospital.role };
-    const token = jwt.sign(payload, USER_JWT_SECRET);
-
-    res.json({ token, message: "Login successful" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+router.post("/login", login);
 
 // @route   GET /api/manufacturer/profile
 // @desc    Get manufacturer profile
 // @access  Private (Manufacturer only)
-router.get("/profile", auth, async (req, res) => {
+router.get("/profile", hospitalAuth, async (req, res) => {
   try {
-    const hospital = await Hospital.findById(req.user.id).select(
-      "-password"
-    );
+    const hospital = await Hospital.findById(req.user.id).select("-password");
     if (!hospital) {
       return res.status(404).json({ message: "Hospital not found" });
     }
@@ -129,18 +38,22 @@ router.get("/profile", auth, async (req, res) => {
   }
 });
 
-
 /* EQIPMENT MANAGEMENT */
 
 // @route   GET /api/hospital/equipment
 // @desc    Get all equipment assigned to the hospital
 // @access  Private (Hospital only)
-router.get("/equipment", auth, async (req, res) => {
+router.get("/equipment", hospitalAuth, async (req, res) => {
   try {
-    const equipment = await Equipment.find({ currentOwner: req.user.id });
+    const equipment = await getEquipment(Hospital, req.user.id);
+
+    if (!equipment) {
+      return res.status(404).json({ message: "No equipment found" });
+    }
+
     res.json(equipment);
   } catch (error) {
-    console.error(error);
+    console.error("Error fetching equipment:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -148,7 +61,7 @@ router.get("/equipment", auth, async (req, res) => {
 // @route   POST /api/hospital/equipment/validate
 // @desc    Validate equipment authenticity
 // @access  Private (Distributor only)
-router.post("/equipment/validate", auth, async (req, res) => {
+router.post("/equipment/validate", hospitalAuth, async (req, res) => {
   try {
     // for now, it is validating all equipments which is transferred to this hospital
     // Get distributor's publicKey from authenticated user
@@ -205,7 +118,7 @@ router.post("/equipment/validate", auth, async (req, res) => {
 // @route   POST /api/hospital/maintenance/request
 // @desc    Submit a maintenance request for equipment
 // @access  Private (Hospital only)
-router.post("/maintenance/request", auth, async (req, res) => {
+router.post("/maintenance/request", hospitalAuth, async (req, res) => {
   const { equipmentId, issueDescription } = req.body;
 
   try {
@@ -236,7 +149,7 @@ router.post("/maintenance/request", auth, async (req, res) => {
 // @route   GET /api/hospital/maintenance
 // @desc    Get all maintenance requests for the hospital
 // @access  Private (Hospital only)
-router.get("/maintenance", auth, async (req, res) => {
+router.get("/maintenance", hospitalAuth, async (req, res) => {
   try {
     const maintenanceRequests = await MaintenanceRequest.find({
       hospitalId: req.user.id,

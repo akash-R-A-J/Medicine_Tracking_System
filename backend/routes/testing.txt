@@ -1,0 +1,53 @@
+for generating keypair on solana:
+ cli command: solana-keygen new --no-passphrase
+
+MANUFACTURER
+
+{
+  "name": "John",
+  "email": "john@gmail.com",
+  "phone": "07209042901",
+  "address": "Kamtachak",
+  "country": "India",
+  "website": "https://john.com",
+  "registrationNumber": "REGISTRATION123",
+  "taxId": "TAX123",
+  "gstNumber": "GST123",
+  "yearOfEstablishment": 2015,
+  "publicKey": "22MdQfwTgvvgy7wtLSueicEmM1hvt9eNWXhizM8ttW6x", ***
+  "username": "john",
+  "password": john@123,
+  "role": "manufacturer",
+}
+
+EQUIPMENT
+
+{
+  "name": "Surgical Kit",
+  "serialNumber": "SK001",
+  "description": "Advanced surgical kit for hospitals",
+  "status": "Available",
+  "manufacturerId": { "$oid": "67ce50191b700d1dea3fe2c6"},
+  "currentOwner": "6npKb9HWoGBf4Xek1GF4Xy4sgT5mAHzAo4xRqR5y3hPC",
+}
+
+DISTRIBUTOR
+
+available-publicKey: 6npKb9HWoGBf4Xek1GF4Xy4sgT5mAHzAo4xRqR5y3hPC
+
+{
+  "name": "HealthDist Ltd.",
+  "email": "contact@healthdist.com",
+  "phone": "1234567890",
+  "address": "789 Dist Street",
+  "country": "USA",
+  "username": "healthdist",
+  "password": "dist@123",
+  "role": "distributor",
+  "publicKey" : "6npKb9HWoGBf4Xek1GF4Xy4sgT5mAHzAo4xRqR5y3hPC",
+}
+
+HOSPITAL
+
+available-publicKey: 4oHxo2FSZgPhtzRNRuG1He1sWpXEi9sC2yHkdawt6yi6
+

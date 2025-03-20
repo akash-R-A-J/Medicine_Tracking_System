@@ -1,11 +1,37 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
 function LoginPage() {
   const [role, setRole] = useState("manufacturer");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  
+  const usernameTimeout = useRef(null);
+  const passwordTimeout = useRef(null);
 
+  // 🔄 Debounce Effect for Username
+  useEffect(() => {
+    if (usernameTimeout.current) clearTimeout(usernameTimeout.current);
+    
+    usernameTimeout.current = setTimeout(() => {
+      console.log("Debounced Username:", username);
+    }, 300);
+
+    return () => clearTimeout(usernameTimeout.current);
+  }, [username]);
+
+  // 🔄 Debounce Effect for Password
+  useEffect(() => {
+    if (passwordTimeout.current) clearTimeout(passwordTimeout.current);
+    
+    passwordTimeout.current = setTimeout(() => {
+      console.log("Debounced Password:", password);
+    }, 300);
+
+    return () => clearTimeout(passwordTimeout.current);
+  }, [password]);
+
+  // on mount
   useEffect(() => {
     document.body.style.backgroundColor = "black";
     document.body.style.color = "white";
@@ -14,13 +40,13 @@ function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      console.log("Submitting:", { role, username, password });
+
       const response = await axios.post(
         `http://localhost:3000/api/v1/${role}/login`,
-        {
-          username,
-          password,
-        }
+        { role, username, password }
       );
+
       localStorage.setItem("token", response.data.token);
       localStorage.setItem("role", role);
       window.location.href = "/dashboard";
@@ -77,13 +103,13 @@ function LoginPage() {
   );
 }
 
-// ✅ Inline Styling Object
+// ✅ Styling
 const styles = {
   container: {
     padding: "20px",
     maxWidth: "400px",
     margin: "0 auto",
-    backgroundColor: "#222", // Darker card color for contrast
+    backgroundColor: "#222",
     borderRadius: "10px",
     boxShadow: "0 4px 8px rgba(255, 255, 255, 0.1)",
     marginTop: "100px",

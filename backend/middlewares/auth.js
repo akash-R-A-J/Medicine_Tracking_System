@@ -1,42 +1,85 @@
-const { USER_JWT_SECRET } = require("../config");
 const JWT = require("jsonwebtoken");
 
-function userAuth(req, res, next) {
-  const token = req.headers.token;
-  const decoded = JWT.verify(token, USER_JWT_SECRET);
+const {
+  MANUFACTURER_JWT_SECRET,
+  DISTRIBUTOR_JWT_SECRET,
+  HOSPITAL_JWT_SECRET,
+} = require("../config");
 
-  if (decoded) {
-    req.userId = decoded.userId;
+// auth for manufacturer
+function manufacturerAuth(req, res, next){
+  
+  const token = req.header("x-auth-token");
+  if (!token) {
+    return res.status(401).json({ message: "No token, authorization denied" });
+  }
+  
+  try {
+    const decoded = JWT.verify(token, MANUFACTURER_JWT_SECRET);
+    req.user = decoded;
     next();
-  } else {
-    res.json({
-      msg: "invalid token!",
-    });
+  } catch (error) {
+    res.status(401).json({ message: "Token is not valid" });
+  }
+}
+
+// auth for distributor
+function distributorAuth(req, res, next){
+  
+  const token = req.header("x-auth-token");
+  if (!token) {
+    return res.status(401).json({ message: "No token, authorization denied" });
+  }
+  
+  try {
+    const decoded = JWT.verify(token, DISTRIBUTOR_JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: "Token is not valid" });
+  }
+}
+
+// auth for hospital
+function hospitalAuth(req, res, next){
+  
+  const token = req.header("x-auth-token");
+  if (!token) {
+    return res.status(401).json({ message: "No token, authorization denied" });
+  }
+  
+  try {
+    const decoded = JWT.verify(token, HOSPITAL_JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: "Token is not valid" });
   }
 }
 
 // middleware/auth.js
-const auth = (req, res, next) => {
-  const token = req.header('x-auth-token');
-  // console.log(token);
-  if (!token) {
-    return res.status(401).json({ message: 'No token, authorization denied' });
+function auth(req, res, next) {
+  const token = req.header("x-auth-token");
+  const role = req.body.role;
+
+  const JWT_SECRET = getJWT(role);
+
+  if (!token || !role) {
+    return res.status(401).json({ message: "No token, authorization denied" });
   }
 
   try {
-    const decoded = JWT.verify(token, USER_JWT_SECRET);
-    if (decoded.role !== 'manufacturer') {
-      return res.status(403).json({ message: 'Access denied: Not a manufacturer' });
-    }
-    // console.log(decoded);
+    const decoded = JWT.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
   } catch (error) {
-    res.status(401).json({ message: 'Token is not valid' });
+    res.status(401).json({ message: "Token is not valid" });
   }
-};
+}
 
 module.exports = {
-    userAuth,
-    auth,
+  auth,
+  manufacturerAuth,
+  distributorAuth,
+  hospitalAuth,
 };

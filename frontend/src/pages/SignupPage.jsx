@@ -58,6 +58,7 @@ export default function SignupPage() {
   const [currentTab, setCurrentTab] = useState(1);
 
   const [formData, setFormData] = useState({
+    role: role,
     name: "",
     email: "",
     phone: "",
