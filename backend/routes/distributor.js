@@ -146,58 +146,22 @@ router.post("/equipment/transfer", distributorAuth, async (req, res) => {
   const { serialNumber, recipientPublicKey } = req.body;
 
   try {
-    const distributor = await Distributor.findById(req.user.id);
-    if (!distributor) throw new Error("Distributor not found");
-
-    const equipment = await Equipment.findOne({
-      serialNumber,
-      currentOwner: distributor.publicKey,
-    });
-    if (!equipment)
-      return res
-        .status(404)
-        .json({ message: "Equipment not found or not owned by you" });
-
-    // Validate recipient public key
-    const recipientPubkey = new PublicKey(recipientPublicKey);
-    if (!PublicKey.isOnCurve(recipientPubkey))
-      throw new Error("Invalid recipient public key");
-
-    // Generate a simple transaction (e.g., transfer a small amount of SOL as a proof of transfer)
-    const senderPubkey = new PublicKey(distributor.publicKey);
-    const transaction = new Transaction().add(
-      SystemProgram.transfer({
-        fromPubkey: senderPubkey,
-        toPubkey: recipientPubkey,
-        lamports: LAMPORTS_PER_SOL * 0.001, // Small fee (0.001 SOL) as a transaction marker
-      })
-    );
-
-    // Fetch recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash();
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = senderPubkey;
-
     // Serialize transaction to send to frontend for signing
-    const serializedTransaction = transaction
-      .serialize({
-        requireAllSignatures: false, // User will sign via Phantom
-      })
-      .toString("base64");
-
-    console.log(
-      "sending serializedTransaction for signing to the frontend...."
+    const serializedTransaction = await transferOwnership(
+      Distributor,
+      serialNumber,
+      recipientPublicKey
     );
-    console.log("serializedTransaction : " + serializedTransaction);
-    console.log(typeof serializedTransaction);
 
-    // Update equipment ownership in MongoDB (after transaction is signed)
-    // Note: This will be confirmed after the frontend sends the signature
-    // For now, return the transaction to the frontend
+    if (!serializedTransaction) {
+      res.status(400).json({ "error:": "invalid serialized transaction" });
+      return;
+    }
+
     res.json({ transaction: serializedTransaction });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    console.error("Transfer error:", error);
+    res.status(400).json({ message: error.message });
   }
 });
 
@@ -208,30 +172,18 @@ router.post("/equipment/confirm-transfer", distributorAuth, async (req, res) => 
   const { serialNumber, recipientPublicKey, signature } = req.body;
 
   try {
-    const distributor = await Distributor.findById(req.user.id);
-    if (!distributor) throw new Error("Manufacturer not found");
-
-    // Fetch equipment to ensure it exists and is owned by the manufacturer
-    const equipment = await Equipment.findOne({
+    const confirmation = await confirmTransfer(
+      Distributor,
+      res.user.id,
       serialNumber,
-      currentOwner: distributor.publicKey,
-    });
-    if (!equipment) throw new Error("Equipment not found or not owned by you");
+      recipientPublicKey,
+      signature
+    );
 
-    // Confirm transaction on Solana
-    const result = await connection.confirmTransaction(signature, "confirmed");
-    if (result.value.err) throw new Error("Transaction confirmation failed");
-
-    // Update equipment ownership in MongoDB
-    equipment.currentOwner = recipientPublicKey;
-    equipment.history.push({
-      action: "Transferred",
-      user: distributor.publicKey,
-      timestamp: new Date(),
-    });
-    await equipment.save();
-
-    console.log("Equipment ownership transferred successfully", signature);
+    if (!confirmation) {
+      res.status(400).json({ error: "Transaction confirmation failed" });
+      return;
+    }
 
     res.json({
       message: "Equipment ownership transferred successfully",

@@ -21,7 +21,9 @@ function getJWT(role) {
     ? MANUFACTURER_JWT_SECRET
     : role === "distributor"
     ? DISTRIBUTOR_JWT_SECRET
-    : HOSPITAL_JWT_SECRET;
+    : role === "hospital" 
+    ? HOSPITAL_JWT_SECRET
+    : null ;
 }
 
 module.exports = {
