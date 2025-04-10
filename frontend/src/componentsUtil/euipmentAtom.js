@@ -6,7 +6,7 @@ export const equipmentListAtom = atom({
   default: [],
 });
 
-// for fetching data from the backend
+// for fetching data (equipment list) from the backend
 export const equipmentList = selectorFamily({
   key: "equipmentListSelector",
   get: ({ id, requestType }) => async () => {

@@ -10,16 +10,18 @@ const {
 
 const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
-async function transferOwnership(Model, serialNumber, recipientPublicKey) {
+async function transferOwnership(Model, serialNumber, recipientPublicKey, id) {
   try {
     // Model -> Distributor, Manufacturer, Hospital
-    const user = await Model.findById(req.user.id);
+    const user = await Model.findById(id);
     if (!user) throw new Error("User not found");
 
     const equipment = await Equipment.findOne({
       serialNumber,
       currentOwner: user.publicKey,
     });
+    
+    console.log(equipment);
 
     if (!equipment) throw new Error("Equipment not found or not owned by you");
 
@@ -46,9 +48,12 @@ async function transferOwnership(Model, serialNumber, recipientPublicKey) {
     // Serialize transaction to send to frontend for signing
     const serializedTransaction = transaction
       .serialize({
-        requireAllSignatures: false, // User will sign via Phantom
+        requireAllSignatures: true, // User will sign via Phantom
+        verifySignatures: false,
       })
       .toString("base64");
+      // transaction.serialize( requireAllSignatures: true, verifySignatures: false })
+
 
     // logging
     console.log(

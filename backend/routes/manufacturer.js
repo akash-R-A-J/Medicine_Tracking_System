@@ -143,13 +143,15 @@ router.get("/equipment", manufacturerAuth, async (req, res) => {
 // @access  Private (Manufacturer only)
 router.post("/equipment/transfer", manufacturerAuth, async (req, res) => {
   const { serialNumber, recipientPublicKey } = req.body;
+  const id = req.user.id;
 
   try {
     // Serialize transaction to send to frontend for signing
     const serializedTransaction = await transferOwnership(
       Manufacturer,
       serialNumber,
-      recipientPublicKey
+      recipientPublicKey,
+      id,
     );
 
     if (!serializedTransaction) {

@@ -144,13 +144,15 @@ router.post("/equipment/validate", distributorAuth, async (req, res) => {
 // @access  Private (Distributor only)
 router.post("/equipment/transfer", distributorAuth, async (req, res) => {
   const { serialNumber, recipientPublicKey } = req.body;
+  const id = req.user.id;
 
   try {
     // Serialize transaction to send to frontend for signing
     const serializedTransaction = await transferOwnership(
       Distributor,
       serialNumber,
-      recipientPublicKey
+      recipientPublicKey,
+      id,
     );
 
     if (!serializedTransaction) {

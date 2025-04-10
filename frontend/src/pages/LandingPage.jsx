@@ -107,9 +107,7 @@ const MainCard = () => {
         textAlign: "center",
       }}
     >
-      {/* <h1 style={{ color: "#333", fontSize: "32px", marginBottom: "10px" }}>
-        Medical Equipment Tracking System
-      </h1> */}
+      
       <p style={{ color: "white", fontSize: "20px", lineHeight: "1.6" }}>
         Welcome to our platform for tracking medical equipment across
         manufacturers, distributors, and hospitals using cutting-edge
