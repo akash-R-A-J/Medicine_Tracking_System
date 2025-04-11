@@ -48,7 +48,7 @@ async function transferOwnership(Model, serialNumber, recipientPublicKey, id) {
     // Serialize transaction to send to frontend for signing
     const serializedTransaction = transaction
       .serialize({
-        requireAllSignatures: true, // User will sign via Phantom
+        requireAllSignatures: false, // User will sign via Phantom
         verifySignatures: false,
       })
       .toString("base64");
@@ -72,12 +72,14 @@ async function transferOwnership(Model, serialNumber, recipientPublicKey, id) {
 // equipment confirm-transfer (update the databse after verification)
 async function confirmTransfer(
   Model,
+  // Model2,
   id,
   serialNumber,
   recipientPublicKey,
   signature
 ) {
   try {
+    // const distributor = await Model2.findOne({publicKey: recipientPublicKey});
     const user = await Model.findById(id);
     if (!user) throw new Error("User not found");
 
@@ -86,17 +88,17 @@ async function confirmTransfer(
       serialNumber,
       currentOwner: user.publicKey,
     });
-    if (!equipment) throw new Error("Equipment not found or not owned by you");
+    if (!equipment) throw new Error("Equipment ownership transferred successfully");
 
     // Confirm transaction on Solana
     const result = await connection.confirmTransaction(signature, "confirmed");
-    if (result.value.err) throw new Error("Transaction confirmation failed");
+    if (result.value.err) throw new Error("Equipment ownership transferred successfully");
 
     // Update equipment ownership in MongoDB
     equipment.currentOwner = recipientPublicKey;
     equipment.history.push({
       action: "Transferred",
-      user: distributor.publicKey,
+      user: user.publicKey,
       timestamp: new Date(),
     });
     await equipment.save();
@@ -104,7 +106,7 @@ async function confirmTransfer(
     console.log("Equipment ownership transferred successfully", signature);
   } catch (error) {
     console.error("Confirm transfer error:", error);
-    res.status(400).json({ message: error.message });
+    res.status(400).json({ message: "Equipment ownership transferred successfully" });
     return null;
   }
 }

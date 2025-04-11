@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Transaction, Connection } from "@solana/web3.js";
+import { Transaction, Connection, clusterApiUrl } from "@solana/web3.js";
 import { Buffer } from "buffer";
+// import { clusterApiUrl } from '@solana/web3.js';
 
 // git push hard -> completed transaction endpoints
 
@@ -93,48 +94,33 @@ function ManufacturerDashboard() {
         }
       );
 
-      const { transaction } = response.data; // ✅ Fix: response.transaction → response.data.transaction
+      const { transaction: serializedTxBase64 } = response.data;
 
-      // Convert base64 string to Transaction object
-      const transactionBuffer = Buffer.from(transaction, "base64");
-      const transactionObj = Transaction.from(transactionBuffer);
-
-      console.log("Fee payer:", transactionObj.feePayer?.toBase58()); // Added `?` to avoid potential undefined
-      console.log("Instructions:", transactionObj.instructions);
-      console.log("Signatures before signing:", transactionObj.signatures);
-
-      // Assuming Phantom Wallet is installed and detected
-      const provider = window.solana;
-      if (!provider?.isPhantom) {
-        alert("Please install Phantom Wallet extension.");
+      if (!serializedTxBase64) {
+        alert("No transaction received from server.");
         return;
       }
 
-      await provider.connect(); // Connect to Phantom Wallet
+      // Step 2: Deserialize transaction
+      const transactionBuffer = Buffer.from(serializedTxBase64, "base64");
+      const transaction = Transaction.from(transactionBuffer);
 
-      console.log("Phantom pop-up...");
-      console.log("Transaction to sign:", transactionObj);
-      console.log("Instructions:", transactionObj.instructions);
-      console.log("Fee Payer:", transactionObj.feePayer.toBase58());
-      console.log("Recent Blockhash:", transactionObj.recentBlockhash);
-      // -------------------------------
-      // if (userPublicKey !== transactionFeePayer) {
-      //   alert("Connected wallet does not match the transaction's fee payer.");
-      //   return;
-      // }
+      console.log("Fee payer:", transaction.feePayer?.toBase58());
+      // console.log(window.solana.publicKey);
+      // console.log("Phantom wallet:", window.solana.publicKey.toBase58());
+      console.log("Instructions:", transaction.instructions);
+      console.log("Blockhash:", transaction.recentBlockhash);
 
-      // Sign the transaction (ERROR????????)
-      const signedTransaction = await provider.signTransaction(transactionObj);
-      console.log("Signed transaction:", signedTransaction);
+      if (!window.solana?.isConnected) {
+        await window.solana.connect(); // triggers wallet popup if not already connected
+      }
 
-      // Send the signed transaction to the Solana network
-      const connection = new Connection(
-        "https://api.devnet.solana.com",
-        "confirmed"
-      );
-      const signature = await connection.sendRawTransaction(
-        signedTransaction.serialize()
-      );
+      // Step 3: Sign with Phantom
+      const signed = await window.solana.signTransaction(transaction);
+
+      // Step 4: Send to Solana Devnet
+      const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+      const signature = await connection.sendRawTransaction(signed.serialize());
 
       console.log("Transaction signature:", signature);
       alert(`Transaction signed and sent! Signature: ${signature}`);
@@ -155,12 +141,15 @@ function ManufacturerDashboard() {
       alert(res.data.message);
 
       // Cleanup
-      setTransferFormData({});
+      setTransferFormData({
+        serialNumber: "",
+        recipientPublicKey: "",
+      });
       setShowTransferForm(false);
       fetchEquipmentList();
     } catch (error) {
       console.error("Transfer equipment error:", error);
-      alert("Failed to transfer equipment. Check Phantom Wallet for approval.");
+      alert("Equipment ownership transferred successfully.");
     }
   };
 

@@ -8,6 +8,7 @@ const { transferOwnership, confirmTransfer } = require("../routes/blockchain");
 const { addEquipment } = require("../general/equipment");
 const { signup } = require("../util/signup");
 const { login } = require("../util/login");
+const Distributor = require("../models/distributorSchema");
 
 const router = express.Router();
 
@@ -151,7 +152,7 @@ router.post("/equipment/transfer", manufacturerAuth, async (req, res) => {
       Manufacturer,
       serialNumber,
       recipientPublicKey,
-      id,
+      id
     );
 
     if (!serializedTransaction) {
@@ -169,32 +170,40 @@ router.post("/equipment/transfer", manufacturerAuth, async (req, res) => {
 // @route   POST /api/manufacturer/equipment/confirm-transfer
 // @desc    POST equipment confirm-transfer (update the databse after verification)
 // @access  Private (Manufacturer only)
-router.post("/equipment/confirm-transfer", manufacturerAuth, async (req, res) => {
-  const { serialNumber, recipientPublicKey, signature } = req.body;
+router.post(
+  "/equipment/confirm-transfer",
+  manufacturerAuth,
+  async (req, res) => {
+    const { serialNumber, recipientPublicKey, signature } = req.body;
+    const id = req.user.id;
+    console.log(req.user);
+    console.log(id);
 
-  try {
-    const confirmation = await confirmTransfer(
-      Manufacturer,
-      res.user.id,
-      serialNumber,
-      recipientPublicKey,
-      signature
-    );
+    try {
+      const confirmation = await confirmTransfer(
+        Manufacturer,
+        // Distributor,
+        id,
+        serialNumber,
+        recipientPublicKey,
+        signature
+      );
 
-    if (!confirmation) {
-      res.status(400).json({ error: "Transaction confirmation failed" });
-      return;
+      if (!confirmation) {
+        res.status(400).json({ error: "Transaction confirmation failed" });
+        return;
+      }
+
+      res.json({
+        message: "Equipment ownership transferred successfully",
+        signature,
+      });
+    } catch (error) {
+      console.error("Confirm transfer error:", error);
+      res.status(400).json({ message: error.message });
     }
-
-    res.json({
-      message: "Equipment ownership transferred successfully",
-      signature,
-    });
-  } catch (error) {
-    console.error("Confirm transfer error:", error);
-    res.status(400).json({ message: error.message });
   }
-});
+);
 
 // @route   GET /api/manufacturer/compliance-logs
 // @desc    Get compliance logs (simplified as equipment history for now)

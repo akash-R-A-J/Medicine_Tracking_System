@@ -130,7 +130,8 @@ router.post("/equipment/validate", distributorAuth, async (req, res) => {
     }
 
     res.json({
-      message: `${validatedEquipment.length} equipment validated successfully`,
+      // message: `${validatedEquipment.length} equipment validated successfully`,
+      message: `equipment validated successfully`,
       validatedEquipment,
     });
   } catch (error) {
